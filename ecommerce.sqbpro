@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="ecommerce.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure browser pragmas query" current="3"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="100"/><column_width id="3" width="1326"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><table title="orders" custom_title="0" dock_id="1" table="4,6:mainorders"/><dock_state state="000000ff00000000fd00000001000000020000043b0000033efc0100000001fb000000160064006f0063006b00420072006f007700730065003101000000000000043b0000013300ffffff000002580000000000000004000000040000000800000008fc00000000"/><default_encoding codec=""/><browse_table_settings><table schema="main" name="online_retail" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort><column index="4" mode="1"/></sort><column_widths><column index="1" value="78"/><column index="2" value="78"/><column index="3" value="280"/><column index="4" value="70"/><column index="5" value="132"/><column index="6" value="78"/><column index="7" value="85"/><column index="8" value="117"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="order_items" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="65"/><column index="2" value="67"/><column index="3" value="280"/><column index="4" value="56"/><column index="5" value="59"/><column index="6" value="81"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="orders" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="65"/><column index="2" value="85"/><column index="3" value="75"/><column index="4" value="124"/><column index="5" value="70"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table></browse_table_settings></tab_browse><tab_sql><sql name="SQL 1*">UPDATE online_retail
+SET SalesAmount = Quantity * UnitPrice;
+
+DELETE FROM online_retail
+where InvoiceNo like 'C%' OR Quantity &lt;=0;
+
+DELETE FROM online_retail
+WHERE CustomerID is NULL;
+
+CREATE TABLE orders AS
+SELECT InvoiceNo,
+       MIN(InvoiceDate) AS InvoiceDate,
+       CustomerID,
+       Country,
+       SUM(SalesAmount) AS OrderTotal
+FROM online_retail
+GROUP BY InvoiceNo, CustomerID, Country;
+
+CREATE TABLE order_items AS
+SELECT InvoiceNo, StockCode, Description, Quantity, UnitPrice, SalesAmount
+FROM online_retail;
+
+UPDATE online_retail
+SET InvoiceDate = SUBSTR(InvoiceDate, 7, 4) || '-' || SUBSTR(InvoiceDate, 4, 2) || '-' || SUBSTR(InvoiceDate, 1, 2)
+WHERE InvoiceDate LIKE '__-__-____';
+
+SELECT
+  oi.StockCode,
+  oi.Description,
+  o.Country,
+  substr(o.InvoiceDate,1,7) AS YearMonth, -- 'YYYY-MM' if InvoiceDate is ISO; else parse in Python
+  SUM(oi.SalesAmount) AS TotalSales,
+  SUM(oi.Quantity) AS TotalQty
+FROM order_items oi
+JOIN orders o ON oi.InvoiceNo = o.InvoiceNo
+GROUP BY o.Country, YearMonth, oi.StockCode, oi.Description
+ORDER BY o.Country, YearMonth, TotalSales DESC;
+
+SELECT COUNT(DISTINCT CustomerID) AS total_customers FROM orders;
+
+SELECT COUNT(*) AS repeat_customers FROM (
+  SELECT CustomerID
+  FROM orders
+  GROUP BY CustomerID
+  HAVING COUNT(DISTINCT InvoiceNo) &gt; 1
+);
+
+
+WITH totals AS (
+  SELECT
+    COUNT(DISTINCT CustomerID) AS total_customers,
+    SUM(CASE WHEN order_count &gt; 1 THEN 1 ELSE 0 END) AS repeat_customers
+  FROM (
+    SELECT CustomerID, COUNT(DISTINCT InvoiceNo) AS order_count
+    FROM orders
+    GROUP BY CustomerID
+  )
+)
+SELECT repeat_customers, total_customers,
+       ROUND( (repeat_customers * 1.0) / total_customers, 4) AS repeat_rate
+FROM totals;
+
+
+WITH first_order AS (
+  SELECT CustomerID, MIN(date(InvoiceDate)) AS cohort_date
+  FROM orders
+  GROUP BY CustomerID
+),
+orders_with_cohort AS (
+  SELECT o.CustomerID,
+         date(o.InvoiceDate) AS order_date,
+         strftime('%Y-%m', date(o.InvoiceDate)) AS order_month,
+         strftime('%Y-%m', date(f.cohort_date)) AS cohort_month
+  FROM orders o
+  JOIN first_order f ON o.CustomerID = f.CustomerID
+)
+SELECT cohort_month, order_month, COUNT(DISTINCT CustomerID) AS active_customers
+FROM orders_with_cohort
+GROUP BY cohort_month, order_month
+ORDER BY cohort_month, order_month;
+
+SELECT 
+    strftime('%m', date(InvoiceDate)) AS monthnum,
+    SUM(OrderTotal) AS total_sales,
+    AVG(OrderTotal) AS avg_sales_per_invoice
+FROM orders
+GROUP BY monthnum
+ORDER BY monthnum;
+
+SELECT InvoiceDate, CustomerID, OrderTotal FROM orders;
+</sql><current_tab id="0"/></tab_sql></sqlb_project>
